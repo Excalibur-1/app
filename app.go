@@ -19,6 +19,11 @@ import (
 // Initially the app is not ready and the isStartReady flag is false.
 var isStartReady = false
 
+const (
+	app   = "base"
+	group = "app"
+)
+
 func init() {
 	fmt.Println("Loading App Engine ver:1.0.0")
 }
@@ -29,29 +34,29 @@ type Rpc struct {
 	server *rpc.Server
 }
 
-func App(fc serv, systemId string, conf configuration.Configuration) {
-	server := OptApp(fc, systemId, conf)
+func App(s serv, namespace, systemId string, conf configuration.Configuration) {
+	server := OptApp(s, namespace, systemId, conf)
 	quit := make(chan os.Signal)
 	signal.Notify(quit, os.Interrupt)
 	<-quit
 	server.Close(func() {})
 }
 
-func OptApp(fc serv, systemId string, conf configuration.Configuration) Rpc {
-	server, config := rpc.Engine(systemId, conf).Server("myconf", "base", "app", systemId)
+func OptApp(s serv, namespace, systemId string, conf configuration.Configuration) Rpc {
+	server, config := rpc.Engine(systemId, conf).Server(namespace, app, group, systemId)
 	if len(config.Tag) > 0 {
 		zipkin.Init(systemId, conf, config.Tag)
 	}
 	// Register the health service.
 	grpc_health_v1.RegisterHealthServer(server.Server(), &Health{})
-	fc(server)
+	s(server)
 	go func() {
 		isStartReady = true
 		if err := server.Run(config.Addr); err != nil {
 			log.Fatal().Err(err).Msg("App Engine Start has error")
 		}
 	}()
-	return Rpc{server}
+	return Rpc{server: server}
 }
 
 func (r Rpc) Close(close func()) {
@@ -70,7 +75,7 @@ type Health struct {
 }
 
 // Check does the health check and changes the status of the server based on weather the app is ready or not.
-func (h *Health) Check(ctx context.Context, req *grpc_health_v1.HealthCheckRequest) (*grpc_health_v1.HealthCheckResponse, error) {
+func (h *Health) Check(context.Context, *grpc_health_v1.HealthCheckRequest) (*grpc_health_v1.HealthCheckResponse, error) {
 	if isStartReady == true {
 		return &grpc_health_v1.HealthCheckResponse{Status: grpc_health_v1.HealthCheckResponse_SERVING}, nil
 	} else if isStartReady == false {
@@ -82,6 +87,6 @@ func (h *Health) Check(ctx context.Context, req *grpc_health_v1.HealthCheckReque
 
 // Watch is used by clients to receive updates when the service status changes.
 // Watch only dummy implemented just to satisfy the interface.
-func (h *Health) Watch(req *grpc_health_v1.HealthCheckRequest, w grpc_health_v1.Health_WatchServer) error {
+func (h *Health) Watch(*grpc_health_v1.HealthCheckRequest, grpc_health_v1.Health_WatchServer) error {
 	return status.Error(codes.Unimplemented, "Watching is not supported")
 }
